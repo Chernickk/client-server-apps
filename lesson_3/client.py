@@ -1,31 +1,32 @@
 """Программа-клиент"""
-
+import asyncio
 import sys
 import json
 import socket
 import time
 from common.variables import ACTION, PRESENCE, TIME, USER, ACCOUNT_NAME, \
-    RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT
-from common.utils import get_message, send_message
+    RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT, PORT
+from common.utils import async_get_message, async_send_message
 
 
-def create_presence(account_name='Guest'):
+def create_request(port, account_name='Guest'):
     '''
     Функция генерирует запрос о присутствии клиента
     :param account_name:
     :return:
     '''
-    out = {
+    request = {
         ACTION: PRESENCE,
         TIME: time.time(),
+        PORT: port,
         USER: {
             ACCOUNT_NAME: account_name
         }
     }
-    return out
+    return request
 
 
-def process_ans(message):
+def analyze_response(message):
     '''
     Функция разбирает ответ сервера
     :param message:
@@ -38,11 +39,11 @@ def process_ans(message):
     raise ValueError
 
 
-def main():
+async def main():
     '''Загружаем параметы коммандной строки'''
     try:
-        server_address = sys.argv[1]
-        server_port = int(sys.argv[2])
+        server_port = int(sys.argv[1])
+        server_address = sys.argv[2]
         if server_port < 1024 or server_port > 65535:
             raise ValueError
     except IndexError:
@@ -56,14 +57,16 @@ def main():
 
     transport = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     transport.connect((server_address, server_port))
-    message_to_server = create_presence()
-    send_message(transport, message_to_server)
+    message_to_server = create_request(server_port)
+    await async_send_message(transport, message_to_server)
     try:
-        answer = process_ans(get_message(transport))
+        answer = await async_get_message(transport)
+        answer = analyze_response(answer)
         print(answer)
     except (ValueError, json.JSONDecodeError):
         print('Не удалось декодировать сообщение сервера.')
 
 
 if __name__ == '__main__':
-    main()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
