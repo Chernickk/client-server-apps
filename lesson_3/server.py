@@ -1,11 +1,11 @@
 """Программа-сервер"""
-
+import asyncio
 import socket
 import sys
 import json
 from common.variables import ACTION, ACCOUNT_NAME, RESPONSE, MAX_CONNECTIONS, \
     PRESENCE, TIME, USER, ERROR, DEFAULT_PORT, RESPONDEFAULT_IP_ADDRESSSE
-from common.utils import get_message, send_message
+from common.utils import async_get_message, async_send_message
 
 
 def process_client_message(message):
@@ -24,6 +24,31 @@ def process_client_message(message):
         RESPONDEFAULT_IP_ADDRESSSE: 400,
         ERROR: 'Bad Request'
     }
+
+
+async def handle_client(client):
+    try:
+        message_from_client = await async_get_message(client)
+        print(message_from_client)
+        response = process_client_message(message_from_client)
+        await async_send_message(client, response)
+        client.close()
+    except (ValueError, json.JSONDecodeError):
+        print('Принято некорретное сообщение от клиента.')
+        client.close()
+
+
+async def run_server(listen_address, listen_port):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((listen_address, listen_port))
+    server.listen(MAX_CONNECTIONS)
+    server.setblocking(False)
+
+    loop = asyncio.get_event_loop()
+
+    while True:
+        client, client_address = await loop.sock_accept(server)
+        loop.create_task(handle_client(client))
 
 
 def main():
@@ -62,26 +87,8 @@ def main():
             'После параметра \'a\'- необходимо указать адрес, который будет слушать сервер.')
         sys.exit(1)
 
-    # Готовим сокет
-
-    transport = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    transport.bind((listen_address, listen_port))
-
-    # Слушаем порт
-
-    transport.listen(MAX_CONNECTIONS)
-
-    while True:
-        client, client_address = transport.accept()
-        try:
-            message_from_cient = get_message(client)
-            print(message_from_cient)
-            response = process_client_message(message_from_cient)
-            send_message(client, response)
-            client.close()
-        except (ValueError, json.JSONDecodeError):
-            print('Принято некорретное сообщение от клиента.')
-            client.close()
+    print('server started')
+    asyncio.run(run_server(listen_address, listen_port))
 
 
 if __name__ == '__main__':
