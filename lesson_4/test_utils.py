@@ -33,7 +33,7 @@ class TestSocket:
         self.encoded_message = json_test_message.encode(ENCODING)
         # сохраняем что должно было отправлено в сокет
         self.received_message = message_to_send
-        
+
     def recv(self, max_len):
         """
         Получаем данные из сокета
