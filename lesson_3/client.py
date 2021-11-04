@@ -4,17 +4,19 @@ import sys
 import json
 import socket
 import time
+
 from common.variables import ACTION, PRESENCE, TIME, USER, ACCOUNT_NAME, \
     RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT, PORT
 from common.utils import async_get_message, async_send_message
+from lesson_5.logs.client_log_config import LOGGER
 
 
 def create_request(port, account_name='Guest'):
-    '''
+    """
     Функция генерирует запрос о присутствии клиента
     :param account_name:
     :return:
-    '''
+    """
     request = {
         ACTION: PRESENCE,
         TIME: time.time(),
@@ -27,11 +29,11 @@ def create_request(port, account_name='Guest'):
 
 
 def analyze_response(message):
-    '''
+    """
     Функция разбирает ответ сервера
     :param message:
     :return:
-    '''
+    """
     if RESPONSE in message:
         if message[RESPONSE] == 200:
             return '200 : OK'
@@ -40,7 +42,7 @@ def analyze_response(message):
 
 
 async def main():
-    '''Загружаем параметы коммандной строки'''
+    """Загружаем параметры командной строки"""
     try:
         server_port = int(sys.argv[1])
         server_address = sys.argv[2]
@@ -50,7 +52,7 @@ async def main():
         server_address = DEFAULT_IP_ADDRESS
         server_port = DEFAULT_PORT
     except ValueError:
-        print('В качестве порта может быть указано только число в диапазоне от 1024 до 65535.')
+        LOGGER.error('В качестве порта может быть указано только число в диапазоне от 1024 до 65535.')
         sys.exit(1)
 
     # Инициализация сокета и обмен
@@ -62,9 +64,9 @@ async def main():
     try:
         answer = await async_get_message(transport)
         answer = analyze_response(answer)
-        print(answer)
+        LOGGER.info(f'сообщение от сервера: {answer}')
     except (ValueError, json.JSONDecodeError):
-        print('Не удалось декодировать сообщение сервера.')
+        LOGGER.error('Не удалось декодировать сообщение сервера.')
 
 
 if __name__ == '__main__':
