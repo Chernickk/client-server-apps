@@ -8,8 +8,8 @@ import time
 from common.variables import ACTION, PRESENCE, TIME, USER, ACCOUNT_NAME, \
     RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT, PORT
 from common.utils import async_get_message, async_send_message
-from lesson_5.logs.client_log_config import LOGGER
-from lesson_6.decos import log
+from logs.client_log_config import LOGGER
+from decos import log
 
 
 @log
