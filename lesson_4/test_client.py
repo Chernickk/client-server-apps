@@ -3,7 +3,7 @@ import unittest
 
 from lesson_3.client import create_request, analyze_response
 from lesson_3.common.variables import ACTION, ACCOUNT_NAME, RESPONSE, \
-    PRESENCE, TIME, USER, ERROR, RESPONDEFAULT_IP_ADDRESSSE, PORT
+    PRESENCE, TIME, USER, ERROR, PORT
 
 
 class TestClient(unittest.TestCase):

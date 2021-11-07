@@ -3,9 +3,12 @@ import asyncio
 import socket
 import sys
 import json
+
 from common.variables import ACTION, ACCOUNT_NAME, RESPONSE, MAX_CONNECTIONS, \
     PRESENCE, TIME, USER, ERROR, DEFAULT_PORT, RESPONDEFAULT_IP_ADDRESSSE
 from common.utils import async_get_message, async_send_message
+from lesson_5.errors import IncorrectDataError
+from lesson_5.logs.server_log_config import LOGGER
 
 
 def process_client_message(message):
@@ -29,13 +32,13 @@ def process_client_message(message):
 async def handle_client(client):
     try:
         message_from_client = await async_get_message(client)
-        print(message_from_client)
+        LOGGER.info(f'сообщение от клиента: {message_from_client}')
         response = process_client_message(message_from_client)
         await async_send_message(client, response)
         client.close()
     except (ValueError, json.JSONDecodeError):
-        print('Принято некорретное сообщение от клиента.')
         client.close()
+        raise IncorrectDataError
 
 
 async def run_server(listen_address, listen_port):
@@ -67,11 +70,10 @@ def main():
         if listen_port < 1024 or listen_port > 65535:
             raise ValueError
     except IndexError:
-        print('После параметра -\'p\' необходимо указать номер порта.')
+        LOGGER.error('После параметра -\'p\' необходимо указать номер порта.')
         sys.exit(1)
     except ValueError:
-        print(
-            'В качастве порта может быть указано только число в диапазоне от 1024 до 65535.')
+        LOGGER.error('В качастве порта может быть указано только число в диапазоне от 1024 до 65535.')
         sys.exit(1)
 
     # Затем загружаем какой адрес слушать
@@ -83,11 +85,10 @@ def main():
             listen_address = ''
 
     except IndexError:
-        print(
-            'После параметра \'a\'- необходимо указать адрес, который будет слушать сервер.')
+        LOGGER.error('После параметра \'a\'- необходимо указать адрес, который будет слушать сервер.')
         sys.exit(1)
 
-    print('server started')
+    LOGGER.info('Сервер запущен')
     asyncio.run(run_server(listen_address, listen_port))
 
 
