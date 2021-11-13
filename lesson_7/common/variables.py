@@ -13,10 +13,13 @@ ENCODING = 'utf-8'
 
 # Прококол JIM основные ключи:
 ACTION = 'action'
+MESSAGE = 'message'
+MESSAGE_TEXT = 'message_text'
 TIME = 'time'
 USER = 'user'
 ACCOUNT_NAME = 'account_name'
 PORT = 'port'
+SENDER = 'sender'
 
 # Прочие ключи, используемые в протоколе
 PRESENCE = 'presence'

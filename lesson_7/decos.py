@@ -15,7 +15,7 @@ def log(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         result = func(*args, **kwargs)
-        LOGGER.error(f'Обращение к функции "{func.__name__}"\nАргументы: {args}\nИменованные аргументы: {kwargs}'
+        LOGGER.debug(f'Обращение к функции "{func.__name__}"\nАргументы: {args}\nИменованные аргументы: {kwargs}'
                      f'\nПроизведено из функции: {inspect.stack()[1].function}')
         return result
     return wrapper
