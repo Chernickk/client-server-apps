@@ -5,9 +5,10 @@ import json
 import socket
 import time
 import argparse
+import threading
 
-from common.variables import ACTION, PRESENCE, TIME, USER, ACCOUNT_NAME, MESSAGE, \
-    RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT, PORT, MESSAGE_TEXT
+from common.variables import ACTION, PRESENCE, TIME, ACCOUNT_NAME, MESSAGE, \
+    RESPONSE, ERROR, DEFAULT_IP_ADDRESS, DEFAULT_PORT, MESSAGE_TEXT, DESTINATION, ALL
 from common.utils import async_get_message, async_send_message
 from logs.client_log_config import LOGGER
 from decos import log
@@ -18,7 +19,8 @@ class SocketClient:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.address = None
         self.port = None
-        self.mode = None
+        self.mode = 'default'
+        self.destination = ALL
         self.name = 'Guest'
 
         self.arg_parser()
@@ -34,22 +36,16 @@ class SocketClient:
         parser = argparse.ArgumentParser()
         parser.add_argument('addr', default=DEFAULT_IP_ADDRESS, nargs='?')
         parser.add_argument('port', default=DEFAULT_PORT, type=int, nargs='?')
-        parser.add_argument('mode', default='listen', nargs='?')
         parser.add_argument('name', default='Guest', nargs='?')
 
         arguments = parser.parse_args(sys.argv[1:])
 
         self.address = arguments.addr
         self.port = arguments.port
-        self.mode = arguments.mode
         self.name = arguments.name
 
         if self.port < 1024 or self.port > 65535:
             LOGGER.critical('В качестве порта может быть указано только число в диапазоне от 1024 до 65535.')
-            sys.exit(1)
-
-        if self.mode not in ('listen', 'send'):
-            LOGGER.critical('Некорректный режим работы')
             sys.exit(1)
 
     @log
@@ -65,21 +61,26 @@ class SocketClient:
         return presence
 
     @log
-    def create_message(self,):
+    def create_message(self):
         """
         Функция генерирует сообщение от клиента
         """
-        user_input = input('Введите сообщение (или "!!!" для выхода)')
+        user_input = input()
 
         if user_input == '!!!':
             self.sock.close()
             LOGGER.info('Закрытие сокета')
             sys.exit(0)
 
+        if user_input == '!':
+            self.p2p_dialog()
+            return
+
         message = {
             ACTION: MESSAGE,
             TIME: time.time(),
             ACCOUNT_NAME: self.name,
+            DESTINATION: self.destination,
             MESSAGE_TEXT: user_input,
         }
 
@@ -104,39 +105,78 @@ class SocketClient:
         Функция разбирает ответ сервера
         """
         if ACTION in message and ACCOUNT_NAME in message and message[ACTION] == MESSAGE:
-            print(f'Сообщение от пользователя {message[ACCOUNT_NAME]}, содержание: {message.get(MESSAGE_TEXT)}')
+            if message[DESTINATION] == self.name:
+                print(f'Вам: {message[ACCOUNT_NAME]}, '
+                      f'содержание: {message.get(MESSAGE_TEXT)}')
+            else:
+                print(f'Всем: {message[ACCOUNT_NAME]}, '
+                      f'содержание: {message.get(MESSAGE_TEXT)}')
         elif message == {RESPONSE: 200}:
             print('Успешное подключение к серверу')
         else:
             LOGGER.error(f'Получено некорректное сообщение {message}')
 
-    @log
-    async def main(self):
+    def p2p_dialog(self):
+        user_input = input("Введите имя получателя или оставьте поле пустым для общего чата: ")
+        if user_input == '':
+            self.destination = ALL
+        else:
+            self.destination = user_input
+            self.mode = 'p2p'
+
+        if self.destination == ALL:
+            text = 'Введите сообщение ("!!!" для выхода, "!" для отправки личного сообщения) \n'
+        else:
+            text = f'Личное сообщение для {self.destination}("!!!" для выхода, "!" для изменения получателя) \n'
+        print(text)
+
+    def get_messages_wrapper(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.get_messages())
+
+    def send_messages_wrapper(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(self.send_messages())
+
+    async def get_messages(self):
+        while True:
+            answer = await async_get_message(self.sock)
+            if self.mode == 'p2p' and answer[DESTINATION] == ALL:
+                pass
+            self.handle_server_message(answer)
+
+    async def send_messages(self):
         initial_message = self.create_presence()
+        if self.destination == ALL:
+            text = 'Введите сообщение ("!!!" для выхода, "!" для отправки личного сообщения) \n'
+        else:
+            text = f'Личное сообщение для {self.destination}("!!!" для выхода, "!" для изменения получателя) \n'
+        print(text)
+
         await async_send_message(self.sock, initial_message)
 
         while True:
-            try:
-                if self.mode == 'send':
-                    message = self.create_message()
+            message = self.create_message()
+            if message:
+                await async_send_message(self.sock, message)
 
-                    await async_send_message(self.sock, message)
+    @log
+    def main(self):
+        try:
+            send_thread = threading.Thread(target=self.send_messages_wrapper)
+            listen_thread = threading.Thread(target=self.get_messages_wrapper)
+            listen_thread.start()
+            send_thread.start()
 
-                if self.mode == 'listen':
-                    answer = await async_get_message(self.sock)
-                    self.handle_server_message(answer)
-
-            except (ValueError, json.JSONDecodeError):
-                LOGGER.error('Не удалось декодировать сообщение сервера.')
-            except BrokenPipeError:
-                LOGGER.error('Сервер разорвал соединение')
-                sys.exit(1)
-
-    def run(self):
-        event_loop = asyncio.get_event_loop()
-        event_loop.run_until_complete(self.main())
+        except (ValueError, json.JSONDecodeError):
+            LOGGER.error('Не удалось декодировать сообщение сервера.')
+        except BrokenPipeError:
+            LOGGER.error('Сервер разорвал соединение')
+            sys.exit(1)
 
 
 if __name__ == '__main__':
     client_sock = SocketClient()
-    client_sock.run()
+    client_sock.main()
