@@ -1,98 +1,115 @@
 """Программа-сервер"""
+import argparse
 import asyncio
+import select
 import socket
 import sys
 import json
 
 from common.variables import ACTION, ACCOUNT_NAME, RESPONSE, MAX_CONNECTIONS, \
-    PRESENCE, TIME, USER, ERROR, DEFAULT_PORT, RESPONDEFAULT_IP_ADDRESSSE
+    PRESENCE, TIME, USER, ERROR, DEFAULT_PORT, MESSAGE, MESSAGE_TEXT, SENDER, DEFAULT_IP_ADDRESS
 from common.utils import async_get_message, async_send_message
 from errors import IncorrectDataError
 from logs.server_log_config import LOGGER
 from decos import log
 
 
-@log
-def process_client_message(message):
-    '''
-    Обработчик сообщений от клиентов, принимает словарь -
-    сообщение от клинта, проверяет корректность,
-    возвращает словарь-ответ для клиента
+class SocketServer:
+    def __init__(self):
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server.setblocking(False)
+        self.listen_address = None
+        self.listen_port = None
 
-    :param message:
-    :return:
-    '''
-    if ACTION in message and message[ACTION] == PRESENCE and TIME in message \
-            and USER in message and message[USER][ACCOUNT_NAME] == 'Guest':
-        return {RESPONSE: 200}
-    return {
-        RESPONDEFAULT_IP_ADDRESSSE: 400,
-        ERROR: 'Bad Request'
-    }
+        self.arg_parser()
 
+        self.server.bind((self.listen_address, self.listen_port))
+        self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server.settimeout(0.2)
+        self.server.listen(MAX_CONNECTIONS)
 
-async def handle_client(client):
-    try:
-        message_from_client = await async_get_message(client)
-        LOGGER.info(f'сообщение от клиента: {message_from_client}')
-        response = process_client_message(message_from_client)
-        await async_send_message(client, response)
-        client.close()
-    except (ValueError, json.JSONDecodeError):
-        client.close()
-        raise IncorrectDataError
+        self.clients = {}
+        self.messages = []
 
+    @log
+    def arg_parser(self):
+        """
+        Парсер аргументов командной строки
+        :return:
+        """
+        parser = argparse.ArgumentParser()
+        parser.add_argument('addr', default=DEFAULT_IP_ADDRESS, nargs='?')
+        parser.add_argument('port', default=DEFAULT_PORT, type=int, nargs='?')
+        arguments = parser.parse_args(sys.argv[1:])
 
-async def run_server(listen_address, listen_port):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((listen_address, listen_port))
-    server.listen(MAX_CONNECTIONS)
-    server.setblocking(False)
+        self.listen_address = arguments.addr
+        self.listen_port = arguments.port
 
-    loop = asyncio.get_event_loop()
+        if self.listen_port < 1024 or self.listen_port > 65535:
+            LOGGER.critical('В качестве порта может быть указано только число в диапазоне от 1024 до 65535.')
+            sys.exit(1)
 
-    while True:
-        client, client_address = await loop.sock_accept(server)
-        loop.create_task(handle_client(client))
+    async def handle_client(self, client):
+        try:
+            message = await async_get_message(client)
+            if ACTION in message and message[ACTION] == PRESENCE and TIME in message and ACCOUNT_NAME in message:
+                self.clients[client] = message[ACCOUNT_NAME]
+                await async_send_message(client, {RESPONSE: 200})
+                return
 
+            elif ACTION in message and message[ACTION] == MESSAGE and TIME in message and ACCOUNT_NAME in message:
+                self.messages.append(message)
+                LOGGER.info(f'сообщение от клиента: {message}')
+                return
+            else:
+                await async_send_message(client, {
+                    RESPONSE: 400,
+                    ERROR: 'Bad Request'
+                })
 
-def main():
-    '''
-    Загрузка параметров командной строки, если нет параметров, то задаём значения по умоланию.
-    Сначала обрабатываем порт:
-    server.py -p 8888 -a 127.0.0.1
-    :return:
-    '''
+        except (ValueError, json.JSONDecodeError):
+            client.close()
+            raise IncorrectDataError
 
-    try:
-        if '-p' in sys.argv:
-            listen_port = int(sys.argv[sys.argv.index('-p') + 1])
-        else:
-            listen_port = DEFAULT_PORT
-        if listen_port < 1024 or listen_port > 65535:
-            raise ValueError
-    except IndexError:
-        LOGGER.error('После параметра -\'p\' необходимо указать номер порта.')
-        sys.exit(1)
-    except ValueError:
-        LOGGER.error('В качастве порта может быть указано только число в диапазоне от 1024 до 65535.')
-        sys.exit(1)
+    async def run_server(self):
+        loop = asyncio.get_event_loop()
 
-    # Затем загружаем какой адрес слушать
+        while True:
+            try:
+                client, client_address = await loop.sock_accept(self.server)
+                self.clients[client] = 'Guest'
+            except OSError:
+                pass
 
-    try:
-        if '-a' in sys.argv:
-            listen_address = sys.argv[sys.argv.index('-a') + 1]
-        else:
-            listen_address = ''
+            recv_ready = []
+            send_ready = []
 
-    except IndexError:
-        LOGGER.error('После параметра \'a\'- необходимо указать адрес, который будет слушать сервер.')
-        sys.exit(1)
+            if self.clients:
+                recv_ready, send_ready, _ = select.select(self.clients.keys(), self.clients.keys(), [], 0)
 
-    LOGGER.info('Сервер запущен')
-    asyncio.run(run_server(listen_address, listen_port))
+            for client_with_message in recv_ready:
+                try:
+                    await self.handle_client(client_with_message)
+                except:
+                    LOGGER.info(f'Клиент {self.clients[client_with_message]} отключился')
+                    del self.clients[client_with_message]
+
+            if self.messages and send_ready:
+                message = self.messages.pop()
+                for client in send_ready:
+                    try:
+                        await async_send_message(client, message)
+                    except:
+                        LOGGER.info(f'Клиент {self.clients[client]} отключился от сервера.')
+                        client.close()
+                        del self.clients[client]
+
+    def run(self):
+
+        LOGGER.info('Сервер запущен')
+        asyncio.run(self.run_server())
 
 
 if __name__ == '__main__':
-    main()
+    socket_server = SocketServer()
+    socket_server.run()
