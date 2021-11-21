@@ -133,21 +133,21 @@ class SocketClient:
     def get_messages_wrapper(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.get_messages())
+        loop.run_until_complete(self.get_messages(loop))
 
     def send_messages_wrapper(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(self.send_messages())
+        loop.run_until_complete(self.send_messages(loop))
 
-    async def get_messages(self):
+    async def get_messages(self, loop):
         while True:
-            answer = await async_get_message(self.sock)
+            answer = await async_get_message(self.sock, loop)
             if self.mode == 'p2p' and answer[DESTINATION] == ALL:
                 pass
             self.handle_server_message(answer)
 
-    async def send_messages(self):
+    async def send_messages(self, loop):
         initial_message = self.create_presence()
         if self.destination == ALL:
             text = 'Введите сообщение ("!!!" для выхода, "!" для отправки личного сообщения) \n'
@@ -155,12 +155,12 @@ class SocketClient:
             text = f'Личное сообщение для {self.destination}("!!!" для выхода, "!" для изменения получателя) \n'
         print(text)
 
-        await async_send_message(self.sock, initial_message)
+        await async_send_message(self.sock, loop, initial_message)
 
         while True:
             message = self.create_message()
             if message:
-                await async_send_message(self.sock, message)
+                await async_send_message(self.sock, loop, message)
 
     @log
     def main(self):
