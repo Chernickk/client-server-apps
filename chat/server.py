@@ -6,6 +6,7 @@ import socket
 import sys
 import json
 import time
+from asyncio import sleep
 
 from uuid import uuid4
 
@@ -35,11 +36,13 @@ class SocketServer:
 
         self.server.bind((self.listen_address, self.listen_port))
         self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server.settimeout(0.1)
+        # self.server.settimeout(0.1)
         self.server.listen(MAX_CONNECTIONS)
 
         self.clients = []
         self.messages = []
+
+        self.main_loop = asyncio.get_event_loop()
 
     @log
     def arg_parser(self):
@@ -62,13 +65,13 @@ class SocketServer:
     async def set_username(self, client, name):
         for user in self.clients:
             if user.name == name:
-                await async_send_message(client.socket, {
+                await async_send_message(client.socket, self.main_loop, {
                     RESPONSE: 400,
                     ERROR: 'Пользователь с таким именем уже есть'
                 })
         else:
             client.name = name
-            await async_send_message(client.socket, {RESPONSE: 200})
+            await async_send_message(client.socket, self.main_loop, {RESPONSE: 200})
 
     async def add_message_to_queue(self, message):
         if DESTINATION in message and message[DESTINATION] == ALL:
@@ -82,7 +85,7 @@ class SocketServer:
                 sender_name = message[ACCOUNT_NAME]
                 sender = [user for user in self.clients if user.name == sender_name]
                 if sender:
-                    await async_send_message(sender[0].socket, {
+                    await async_send_message(sender[0].socket, self.main_loop, {
                         ACTION: MESSAGE,
                         TIME: time.time(),
                         DESTINATION: sender_name,
@@ -92,7 +95,7 @@ class SocketServer:
 
     async def handle_client(self, client: Client):
         try:
-            message = await async_get_message(client.socket)
+            message = await async_get_message(client.socket, self.main_loop)
             if ACTION in message and message[ACTION] == PRESENCE and TIME in message and ACCOUNT_NAME in message:
                 name = message[ACCOUNT_NAME]
                 await self.set_username(client, name)
@@ -101,7 +104,7 @@ class SocketServer:
                 await self.add_message_to_queue(message)
 
             else:
-                await async_send_message(client.socket, {
+                await async_send_message(client.socket, self.main_loop, {
                     RESPONSE: 400,
                     ERROR: 'Bad Request'
                 })
@@ -110,44 +113,32 @@ class SocketServer:
             client.socket.close()
             raise IncorrectDataError
 
-    async def run_server(self):
-        loop = asyncio.get_event_loop()
-
+    async def accept_client(self):
         while True:
-            try:
-                client_sock, client_address = await loop.sock_accept(self.server)
-                client = Client(client_sock)
-                self.clients.append(client)
-            except OSError:
-                pass
+            client_sock, client_address = await self.main_loop.sock_accept(self.server)
+            client = Client(client_sock)
+            self.clients.append(client)
 
-            recv_ready_sockets = []
-            send_ready_sockets = []
-            recv_ready_clients = []
-            send_ready_ready_clients = []
-
+    async def handle_clients(self):
+        while True:
             clients_sockets = [user.socket for user in self.clients]
+            recv_ready_sockets, _, _ = select.select(clients_sockets, [], [], 0)
+            recv_ready_clients = [user for user in self.clients if user.socket in recv_ready_sockets]
+            if recv_ready_clients:
+                for client in recv_ready_clients:
+                    await self.handle_client(client)
+            else:
+                await sleep(0)
 
-            if self.clients:
-                recv_ready_sockets, send_ready_sockets, _ = select.select(clients_sockets, clients_sockets, [], 0)
-                recv_ready_clients = [user for user in self.clients if user.socket in recv_ready_sockets]
-                send_ready_ready_clients = [user for user in self.clients if user.socket in send_ready_sockets]
-
-            for client_with_message in recv_ready_clients:
-                try:
-                    await self.handle_client(client_with_message)
-                except:
-                    LOGGER.info(f'Клиент {client_with_message.name} отключился')
-                    client_with_message.socket.close()
-                    self.clients.remove(client_with_message)
-
-            if self.messages and send_ready_ready_clients:
+    async def send_messages(self):
+        while True:
+            if self.messages:
                 message = self.messages.pop()
                 if message[DESTINATION] == ALL:
-                    for client in send_ready_ready_clients:
+                    for client in self.clients:
                         if client.name != message[ACCOUNT_NAME]:
                             try:
-                                await async_send_message(client.socket, message)
+                                await async_send_message(client.socket, self.main_loop, message)
                             except:
                                 LOGGER.info(f'Клиент {client.name} отключился от сервера.')
                                 client.socket.close()
@@ -156,22 +147,26 @@ class SocketServer:
                     recipient_name = message[DESTINATION]
                     recipient = [user for user in self.clients if user.name == recipient_name]
                     if recipient:
-                        await async_send_message(recipient[0].socket, message)
+                        await async_send_message(recipient[0].socket, self.main_loop, message)
                     else:
                         sender_name = message[ACCOUNT_NAME]
                         sender = [user for user in self.clients if user.name == sender_name]
                         if sender:
-                            await async_send_message(sender[0].socket, {
+                            await async_send_message(sender[0].socket, self.main_loop, {
                                 ACTION: MESSAGE,
                                 TIME: time.time(),
                                 ACCOUNT_NAME: "SERVER",
                                 MESSAGE_TEXT: f"Пользователь {recipient_name} отключился",
                             })
+            else:
+                await sleep(0)
 
     def run(self):
-
+        self.main_loop.create_task(self.accept_client())
+        self.main_loop.create_task(self.handle_clients())
+        self.main_loop.create_task(self.send_messages())
         LOGGER.info('Сервер запущен')
-        asyncio.run(self.run_server())
+        self.main_loop.run_forever()
 
 
 if __name__ == '__main__':

@@ -1,9 +1,0 @@
-nested_dict:
-  one: dict ☆
-  three: "dict \uD83D"
-  two: dict €
-number: 10
-some_list:
-- hi
-- 1
-- list

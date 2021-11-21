@@ -4,14 +4,13 @@ import json
 from common.variables import MAX_PACKAGE_LENGTH, ENCODING
 
 
-async def async_get_message(client):
+async def async_get_message(client, loop):
     '''
     Утилита приёма и декодирования сообщения
     принимает байты выдаёт словарь, если приняточто-то другое отдаёт ошибку значения
     :param client:
     :return:
     '''
-    loop = asyncio.get_event_loop()
 
     encoded_response = await loop.sock_recv(client, MAX_PACKAGE_LENGTH)
     if isinstance(encoded_response, bytes):
@@ -23,7 +22,7 @@ async def async_get_message(client):
     raise ValueError
 
 
-async def async_send_message(sock, message):
+async def async_send_message(sock, loop, message):
     """
     Утилита кодирования и отправки сообщения
     принимает словарь и отправляет его
@@ -31,7 +30,6 @@ async def async_send_message(sock, message):
     :param message:
     :return:
     """
-    loop = asyncio.get_event_loop()
 
     js_message = json.dumps(message)
     encoded_message = js_message.encode(ENCODING)
