@@ -10,7 +10,7 @@ def host_ping(addresses):
     reachable = []
     unreachable = []
     for address in addresses:
-        if subprocess.call(['ping', '-c', '1', address], stdout=subprocess.DEVNULL) == 0:
+        if subprocess.call(['timeout', '0.1', 'ping', '-c', '1', address], stdout=subprocess.DEVNULL) == 0:
             print(f'{address} доступен')
             reachable.append(address)
         else:

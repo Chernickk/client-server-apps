@@ -8,9 +8,15 @@ def host_range_ping_tab(ip_address):
 
     reachable, unreachable = host_ping(ip_list)
 
+    table_list = []
+    for _ in range(max(len(reachable), len(unreachable))):
+        reachable_ip = reachable.pop() if reachable else ''
+        unreachable_ip = unreachable.pop() if unreachable else ''
+        table_list.append((reachable_ip, unreachable_ip))
+
     headers = ['reachable', 'unreachable']
 
-    print(tabulate([reachable, unreachable], headers=headers))
+    print(tabulate(table_list, headers=headers))
 
 
 if __name__ == '__main__':
